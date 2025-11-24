@@ -44,8 +44,8 @@ warnings.filterwarnings('ignore')
 
 # Data parameters
 
-datapath = r'C:\Users\wanzay\OneDrive - Universidade de Aveiro\Desktop\Course module Materials\Marco NN\NN-FSO\NN-FSO REP\ML_Channel_Estimation\data'
-DATA_DIR = datapath #'./data/'
+# datapath = r'C:\Users\wanzay\OneDrive - Universidade de Aveiro\Desktop\Course module Materials\Marco NN\NN-FSO\NN-FSO REP\ML_Channel_Estimation\data'
+DATA_DIR = '../data/'
 # Options: lin_wan5_mod_turb_samps.mat, 
 #          lin_wan5_strong_turb_samps.mat,
 #          lin_wan5_weak_turb_samps.mat
