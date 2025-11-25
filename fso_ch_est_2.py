@@ -67,7 +67,7 @@ FS_MEAS = 1e4  # Measurement sampling frequency (10 kHz)
 FS = FS_MEAS / 1  # Processing sampling frequency
 
 # Model parameters
-LATENCY = [1, 5] #20  # Prediction horizon in samples (can be list: [1, 5, 10, 15, 20, 25, 30, 35, 40, 50])
+LATENCY = [1, 5, 10, 15, 20, 25, 30, 35, 40, 50, 100, 150]#20  # Prediction horizon in samples (can be list: [1, 5, 10, 15, 20, 25, 30, 35, 40, 50])
 N_TAPS = 10   # Filter memory length / number of lagged features
 
 # Training parameters
@@ -93,7 +93,9 @@ db2pow = lambda x: 10 ** (x / 10)
 
 def calculate_rmse(y_true, y_pred):
     """Calculate Root Mean Squared Error"""
-    return mean_squared_error(y_true, y_pred, squared=False)
+    # return mean_squared_error(y_true, y_pred, squared=False) # deprecated 
+    return np.sqrt(mean_squared_error(y_true, y_pred))
+
 
 def load_fso_data(data_dir, filename, var_name):
     """
@@ -399,7 +401,8 @@ def plot_results(all_results, latency_values, dataset_name):
             for model in models:
                 rmse_data[model].append(all_results[lat]['rmse'][model])
                 rytov_data[model].append(all_results[lat]['rytov'][model])
-            rytov_input.append(all_results[lat]['rytov']['input'])
+            # rytov_input.append(all_results[lat]['rytov']['input'])
+            rytov_input.append(all_results[lat]['rytov']['input'][0])  # Adjusted for use rytov of original input signal... before lagging.
     
     # ========================================================================
     # PLOT 1: RMSE vs. Latency
@@ -442,9 +445,15 @@ def plot_results(all_results, latency_values, dataset_name):
     
     # Plot model Rytov variances (only selected models)
     # selected_models = ['lms', 'lr', 'zoh']  # Match MATLAB script
+    # Dont match MATLAB script... instead plot all models for completeness
     for model in models:
-        plt.plot(latency_ms, rytov_data[model], markers[model],
+        y_values = [a for a, b in rytov_data[model]]  # use lists comprehension instead to extract rytov variance,that is the first element of each tuple from the lists in the dictionary.
+        plt.plot(latency_ms, y_values, markers[model],
                 linewidth=1.5, markersize=6, label=model_labels[model])
+        
+        # plt.plot(latency_ms, rytov_data[model], markers[model],
+        #         linewidth=1.5, markersize=6, label=model_labels[model])
+        # Note: rytov_data[model] is a list of lists, we take the first element for plotting.
     
     plt.xlabel('Estimation Latency [ms]', fontsize=12)
     plt.ylabel('Rytov Variance', fontsize=12)
