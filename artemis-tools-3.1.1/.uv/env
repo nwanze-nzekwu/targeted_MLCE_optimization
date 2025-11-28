@@ -1,0 +1,11 @@
+#!/bin/sh
+# add binaries to PATH if they aren't added yet
+# affix colons on either side of $PATH to simplify matching
+case ":${PATH}:" in
+    *:"$HOME/Desktop/targeted_MLCE_optimization/artemis-tools-3.1.1/.uv":*)
+        ;;
+    *)
+        # Prepending path in case a system-installed binary needs to be overridden
+        export PATH="$HOME/Desktop/targeted_MLCE_optimization/artemis-tools-3.1.1/.uv:$PATH"
+        ;;
+esac
