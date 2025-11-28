@@ -1,25 +1,3 @@
-"""
-FSO Channel Estimation with Multiple Machine Learning Models
-
-This script analyzes Free Space Optical (FSO) communication signal data to predict
-signal attenuation across different time horizons. It loads FSO power measurements,
-applies feature engineering with time-lagged differencing, trains multiple machine
-learning models (LMS, Linear Regression, Random Forest, XGBoost, CatBoost, and
-Zero-Order Hold baseline), and evaluates their performance using RMSE and Rytov
-variance metrics.
-
-Key Features:
-- Loads .mat files containing FSO signal measurements at 10 kHz sampling
-- Creates stationary features using first-order differencing
-- Builds time-lagged feature matrices for prediction
-- Trains 6 different models for attenuation prediction
-- Evaluates performance across different latency horizons
-- Generates comparison plots of RMSE vs. latency
-- Calculates turbulence metrics using Rytov variance
-
-Configuration parameters are set at the top of the script for easy modification.
-"""
-
 import numpy as np
 import pandas as pd
 import scipy.io
@@ -31,6 +9,7 @@ import xgboost as xgb
 import catboost as cb
 import os
 import warnings
+import json # <--- ADDED: Import the json module
 
 # Import custom functions (dependencies from previous tasks)
 from my_pyt_lms import my_pyt_lms
@@ -66,7 +45,7 @@ FS_MEAS = 1e4  # Measurement sampling frequency (10 kHz)
 FS = FS_MEAS / 1  # Processing sampling frequency
 
 # Model parameters
-LATENCY = [1, 5, 10, 15, 20, 25, 30, 35, 40, 50, 100, 150]#20  # Prediction horizon in samples (can be list: [1, 5, 10, 15, 20, 25, 30, 35, 40, 50])
+LATENCY = [1, 5, 10]#, 15, 20, 25, 30, 35, 40, 50, 100, 150]#20  # Prediction horizon in samples (can be list: [1, 5, 10, 15, 20, 25, 30, 35, 40, 50])
 N_TAPS = 10   # Filter memory length / number of lagged features
 
 # Training parameters
@@ -81,6 +60,10 @@ CB_ITERATIONS = 100
 # Visualization
 VISUAL_DEBUG = True
 OUTPUT_DIR = './output/'
+
+# <--- ADDED: Filename for the JSON log
+RESULTS_FILENAME = f'results_log_{DATASET_NAME.replace(" ", "_").lower()}.json'
+
 
 # ============================================================================
 # HELPER FUNCTIONS
@@ -100,7 +83,7 @@ def load_fso_data(data_dir, filename, var_name):
     """
     Load FSO signal data from .mat file
     
-    Args:I'm creating genetic algorithm targets for the most impactful parameter sections. This will allow systematic exploration of the hyperparameter space to find optimal values:
+    Args:
         data_dir: Directory containing data files
         filename: Name of .mat file
         var_name: Variable name in .mat file
@@ -351,6 +334,7 @@ def calculate_rytov_metrics(results, latency):
     precom_zoh = y_true - results['zoh']
     
     # Convert to power and calculate Rytov variance
+    # Note: rytov_vs_latency returns a tuple (Rytov_variance, normalized_std)
     rytov_results['lms'] = rytov_vs_latency(db2pow(precom_lms))
     rytov_results['lr'] = rytov_vs_latency(db2pow(precom_lr))
     rytov_results['rf'] = rytov_vs_latency(db2pow(precom_rf))
@@ -399,9 +383,10 @@ def plot_results(all_results, latency_values, dataset_name):
         if lat in all_results:
             for model in models:
                 rmse_data[model].append(all_results[lat]['rmse'][model])
-                rytov_data[model].append(all_results[lat]['rytov'][model])
-            # rytov_input.append(all_results[lat]['rytov']['input'])
-            rytov_input.append(all_results[lat]['rytov']['input'][0])  # Adjusted for use rytov of original input signal... before lagging.
+                # Append only the Rytov variance (index 0)
+                rytov_data[model].append(all_results[lat]['rytov'][model][0]) 
+            # Append only the Rytov variance (index 0)
+            rytov_input.append(all_results[lat]['rytov']['input'][0]) 
     
     # ========================================================================
     # PLOT 1: RMSE vs. Latency.
@@ -442,17 +427,11 @@ def plot_results(all_results, latency_values, dataset_name):
     latency_ms = np.array(latency_values) / (FS / 1000)  # Convert to milliseconds
     plt.plot(latency_ms, rytov_input, '--', linewidth=2, label='Input Variance')
     
-    # Plot model Rytov variances (only selected models)
-    # selected_models = ['lms', 'lr', 'zoh']  # Match MATLAB script
-    # Dont match MATLAB script... instead plot all models for completeness
+    # Plot model Rytov variances 
     for model in models:
-        y_values = [a for a, b in rytov_data[model]]  # use lists comprehension instead to extract rytov variance,that is the first element of each tuple from the lists in the dictionary.
-        plt.plot(latency_ms, y_values, markers[model],
+        # y_values = [a for a, b in rytov_data[model]]  # use lists comprehension instead to extract rytov variance,that is the first element of each tuple from the lists in the dictionary.
+        plt.plot(latency_ms, rytov_data[model], markers[model],
                 linewidth=1.5, markersize=6, label=model_labels[model])
-        
-        # plt.plot(latency_ms, rytov_data[model], markers[model],
-        #         linewidth=1.5, markersize=6, label=model_labels[model])
-        # Note: rytov_data[model] is a list of lists, we take the first element for plotting.
     
     plt.xlabel('Estimation Latency [ms]', fontsize=12)
     plt.ylabel('Rytov Variance', fontsize=12)
@@ -468,6 +447,60 @@ def plot_results(all_results, latency_values, dataset_name):
     
     if VISUAL_DEBUG:
         plt.show()
+
+# <--- ADDED: New function to save results to JSON
+def save_results_to_json(all_results, output_dir, filename, latency_values):
+    """
+    Saves the RMSE and Rytov results to a JSON file.
+    
+    Args:
+        all_results: Dictionary containing all model results for all latencies.
+        output_dir: Directory to save the file.
+        filename: Name of the JSON file.
+        latency_values: List of latency values tested.
+    """
+    
+    # Create the data structure for logging
+    log_data = {
+        'metadata': {
+            'dataset_name': DATASET_NAME,
+            'dataset_file': DATASET_FILE,
+            'sampling_frequency_Hz': FS,
+            'taps_n': N_TAPS,
+            'n_train': N_TRAIN,
+            'use_differential': USE_DIFFERENTIAL,
+            'latency_samples': latency_values
+        },
+        'results_by_latency': {}
+    }
+
+    # Populate results
+    for lat in latency_values:
+        if lat in all_results:
+            lat_results = all_results[lat]
+            
+            # Extract only the Rytov variance (index 0 of the tuple)
+            rytov_clean = {
+                model: lat_results['rytov'][model][0] 
+                for model in lat_results['rytov']
+            }
+
+            log_data['results_by_latency'][str(lat)] = { # JSON keys must be strings
+                'rmse': lat_results['rmse'],
+                'rytov_variance': rytov_clean
+            }
+        
+    # Create output directory if it doesn't exist
+    os.makedirs(output_dir, exist_ok=True)
+    filepath = os.path.join(output_dir, filename)
+    
+    # Save to JSON
+    try:
+        with open(filepath, 'w') as f:
+            json.dump(log_data, f, indent=4)
+        print(f"\nSuccessfully logged results to JSON file: {filepath}")
+    except Exception as e:
+        print(f"\nError saving JSON file: {e}")
 
 # ============================================================================
 # MAIN EXECUTION
@@ -553,8 +586,27 @@ def main():
         rytov_results = calculate_rytov_metrics(results, lat)
         results['rytov'] = rytov_results
         
-        all_results[lat] = results
-    
+        # Note: 'y_true' in results is a numpy array, which is NOT JSON serializable. 
+        # We must remove it before saving the entire 'all_results' structure.
+        # However, for plot generation, we keep it in 'results' until we add it to 'all_results'.
+        # Since 'results' is a temporary structure per latency, we copy the relevant info.
+        
+        # Store only the necessary metrics in all_results
+        all_results[lat] = {
+            'rmse': results['rmse'],
+            'rytov': results['rytov']
+            # We explicitly exclude the large array 'y_true' and prediction arrays
+        }
+
+
+    # ========================================================================
+    # SAVE RESULTS TO JSON <--- ADDED: Call the function to save results
+    # ========================================================================
+    print(f"\n{'='*80}")
+    print("Saving results to JSON...")
+    print(f"{'='*80}")
+    save_results_to_json(all_results, OUTPUT_DIR, RESULTS_FILENAME, latency_values)
+
     # ========================================================================
     # GENERATE PLOTS
     # ========================================================================
@@ -590,13 +642,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
-
-
-
-
-# To Do:
-# in the next iteration by Artermis optimizer...
-# Include the option to specify the number of datapoints to load from the .mat file
-# Include the option to specify train/test split ratio, as well as validity set.
-# Enable inclusion or exclusion of features, e.g., moving average, moving std, spectral features, etc.
