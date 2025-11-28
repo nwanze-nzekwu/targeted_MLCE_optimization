@@ -18,7 +18,7 @@ from rytov_vs_latency import rytov_vs_latency
 warnings.filterwarnings('ignore')
 
 # ============================================================================
-# CONFIGURATION PARAMETERS.
+# CONFIGURATION PARAMETERS
 # ============================================================================
 
 # Data parameters
