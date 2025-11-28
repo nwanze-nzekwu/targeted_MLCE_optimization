@@ -45,7 +45,7 @@ FS_MEAS = 1e4  # Measurement sampling frequency (10 kHz)
 FS = FS_MEAS / 1  # Processing sampling frequency
 
 # Model parameters
-LATENCY = [1, 5, 10]#, 15, 20, 25, 30, 35, 40, 50, 100, 150]#20  # Prediction horizon in samples (can be list: [1, 5, 10, 15, 20, 25, 30, 35, 40, 50])
+LATENCY = [1, 5, 10, 15, 20, 25, 30, 35, 40, 50, 100, 150]#20  # Prediction horizon in samples (can be list: [1, 5, 10, 15, 20, 25, 30, 35, 40, 50])
 N_TAPS = 10   # Filter memory length / number of lagged features
 
 # Training parameters
@@ -415,8 +415,8 @@ def plot_results(all_results, latency_values, dataset_name):
     
     # Save figure
     plot_filename = os.path.join(OUTPUT_DIR, f'rmse_vs_latency_{dataset_name.replace(" ", "_").lower()}.png')
-    plt.savefig(plot_filename, dpi=150)
-    print(f"\nSaved RMSE plot to: {plot_filename}")
+    # plt.savefig(plot_filename, dpi=150)
+    # print(f"\nSaved RMSE plot to: {plot_filename}")
     
     # ========================================================================
     # PLOT 2: Rytov Variance vs. Latency
@@ -442,8 +442,8 @@ def plot_results(all_results, latency_values, dataset_name):
     
     # Save figure
     plot_filename = os.path.join(OUTPUT_DIR, f'rytov_vs_latency_{dataset_name.replace(" ", "_").lower()}.png')
-    plt.savefig(plot_filename, dpi=150)
-    print(f"Saved Rytov variance plot to: {plot_filename}")
+    # plt.savefig(plot_filename, dpi=150)
+    # print(f"Saved Rytov variance plot to: {plot_filename}")
     
     if VISUAL_DEBUG:
         plt.show()
