@@ -22,7 +22,7 @@ warnings.filterwarnings('ignore')
 # These can be overridden by arguments passed to the objective_function.
 # ============================================================================
 DEFAULT_CONFIG = {
-    'DATA_DIR': '../data/',
+    'DATA_DIR': 'data/',
     'DATASET_FILE': 'lin_wan5_weak_turb_samps.mat',
     'DATASET_VAR': 'lin_wan5_w_dat',
     'DATASET_NAME': 'Weak Turbulence',
