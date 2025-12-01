@@ -96,39 +96,19 @@ def train_and_evaluate_models(df_train, df_test, latency, n_taps, config):
     results = {}
     
     # --- Least Mean Square ---
-    y_tr, err_tr, wts_tr = my_pyt_lms(X_train, y_train, n_taps, None, False)
-    wts = wts_tr[-1, :]
-    yt, e, wts_final = my_pyt_lms(X_test, None, n_taps, wts, True)
-    pred_lms = yt + df_test[f'OptPow_lag{latency}'].values if config['USE_DIFFERENTIAL'] else yt
-    results['lms'] = pred_lms
+    train_and_test_lms_model(df_test, latency, n_taps, config, X_train, y_train, X_test, results)
     
     # --- Liner Regression ---
-    model_lr = LinearRegression()
-    model_lr.fit(X_train, y_train)
-    pred_lr_diff = model_lr.predict(X_test)
-    pred_lr = pred_lr_diff + df_test[f'OptPow_lag{latency}'].values if config['USE_DIFFERENTIAL'] else pred_lr_diff
-    results['lr'] = pred_lr
+    train_and_test_lr_model(df_test, latency, config, X_train, y_train, X_test, results)
     
     # --- Random Forest ---
-    model_rf = RandomForestRegressor(n_estimators=config['RF_N_ESTIMATORS'], random_state=42, n_jobs=-1)
-    model_rf.fit(X_train, y_train)
-    pred_rf_diff = model_rf.predict(X_test)
-    pred_rf = pred_rf_diff + df_test[f'OptPow_lag{latency}'].values if config['USE_DIFFERENTIAL'] else pred_rf_diff
-    results['rf'] = pred_rf
+    train_and_test_rf_model(df_test, latency, config, X_train, y_train, X_test, results)
     
     # --- XGBoost ---
-    model_xgb = xgb.XGBRegressor(n_estimators=config['XGB_N_ESTIMATORS'], random_state=42, n_jobs=-1)
-    model_xgb.fit(X_train, y_train)
-    pred_xgb_diff = model_xgb.predict(X_test)
-    pred_xgb = pred_xgb_diff + df_test[f'OptPow_lag{latency}'].values if config['USE_DIFFERENTIAL'] else pred_xgb_diff
-    results['xgb'] = pred_xgb
+    train_and_test_xg_model(df_test, latency, config, X_train, y_train, X_test, results)
     
     # --- CatBoost ---
-    model_cb = cb.CatBoostRegressor(iterations=config['CB_ITERATIONS'], verbose=False, random_state=42)
-    model_cb.fit(X_train, y_train)
-    pred_cb_diff = model_cb.predict(X_test)
-    pred_cb = pred_cb_diff + df_test[f'OptPow_lag{latency}'].values if config['USE_DIFFERENTIAL'] else pred_cb_diff
-    results['cb'] = pred_cb
+    train_and_test_cb_model(df_test, latency, config, X_train, y_train, X_test, results)
     
     # --- Zero Order Hold ---
     pred_zoh = df_test[f'OptPow_lag{latency}'].values
@@ -141,6 +121,47 @@ def train_and_evaluate_models(df_train, df_test, latency, n_taps, config):
     results['y_true'] = y_true 
     
     return results
+
+def train_and_test_lms_model(df_test, latency, n_taps, config, X_train, y_train, X_test, results):
+    y_tr, err_tr, wts_tr = my_pyt_lms(X_train, y_train, n_taps, None, False)
+    wts = wts_tr[-1, :]
+    yt, e, wts_final = my_pyt_lms(X_test, None, n_taps, wts, True)
+    pred_lms = yt + df_test[f'OptPow_lag{latency}'].values if config['USE_DIFFERENTIAL'] else yt
+    results['lms'] = pred_lms
+
+def train_and_test_lr_model(df_test, latency, config, X_train, y_train, X_test, results):
+    model_lr = LinearRegression()
+    model_lr.fit(X_train, y_train)
+    pred_lr_diff = model_lr.predict(X_test)
+    pred_lr = pred_lr_diff + df_test[f'OptPow_lag{latency}'].values if config['USE_DIFFERENTIAL'] else pred_lr_diff
+    results['lr'] = pred_lr
+
+def train_and_test_rf_model(df_test, latency, config, X_train, y_train, X_test, results):
+    model_rf = RandomForestRegressor(n_estimators=config['RF_N_ESTIMATORS'], random_state=42, n_jobs=-1)
+    model_rf.fit(X_train, y_train)
+    pred_rf_diff = model_rf.predict(X_test)
+    pred_rf = pred_rf_diff + df_test[f'OptPow_lag{latency}'].values if config['USE_DIFFERENTIAL'] else pred_rf_diff
+    results['rf'] = pred_rf
+
+def train_and_test_xg_model(df_test, latency, config, X_train, y_train, X_test, results):
+    model_xgb = xgb.XGBRegressor(n_estimators=config['XGB_N_ESTIMATORS'], random_state=42, n_jobs=-1)
+    model_xgb.fit(X_train, y_train)
+    pred_xgb_diff = model_xgb.predict(X_test)
+    pred_xgb = pred_xgb_diff + df_test[f'OptPow_lag{latency}'].values if config['USE_DIFFERENTIAL'] else pred_xgb_diff
+    results['xgb'] = pred_xgb
+
+def train_and_test_cb_model(df_test, latency, config, X_train, y_train, X_test, results):
+    model_cb = cb.CatBoostRegressor(iterations=config['CB_ITERATIONS'], verbose=False, random_state=42)
+    model_cb.fit(X_train, y_train)
+    pred_cb_diff = model_cb.predict(X_test)
+    pred_cb = pred_cb_diff + df_test[f'OptPow_lag{latency}'].values if config['USE_DIFFERENTIAL'] else pred_cb_diff
+    results['cb'] = pred_cb
+
+
+
+# def train_and_test_cb_model(X_train, y_train, X_test, use_differential, df_test, latency):
+
+
 
 # --- CALCULATE Rytov Variance  ---
 def calculate_rytov_metrics(results):
