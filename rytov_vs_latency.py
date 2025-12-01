@@ -170,7 +170,7 @@ def rytov_vs_latency(power_data: np.ndarray, aperture_diameter: float = 7e-3,
                 
                 # Check if we should switch to Log-Normal (weak turbulence)
                 if rytov_var_gamma_gamma_scalar < 0.03:
-                    print(f"Switching to Log-Normal distribution (Rytov = {rytov_var_gamma_gamma_scalar:.4f})")
+                    # print(f"Switching to Log-Normal distribution (Rytov = {rytov_var_gamma_gamma_scalar:.4f})")
                     
                     # Refit with Log-Normal distribution
                     rytov_var_result = fmin(

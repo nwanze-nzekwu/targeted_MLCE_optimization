@@ -95,46 +95,46 @@ def train_and_evaluate_models(df_train, df_test, latency, n_taps, config):
     
     results = {}
     
-    # --- LMS ---
+    # --- Least Mean Square ---
     y_tr, err_tr, wts_tr = my_pyt_lms(X_train, y_train, n_taps, None, False)
     wts = wts_tr[-1, :]
     yt, e, wts_final = my_pyt_lms(X_test, None, n_taps, wts, True)
     pred_lms = yt + df_test[f'OptPow_lag{latency}'].values if config['USE_DIFFERENTIAL'] else yt
     results['lms'] = pred_lms
     
-    # --- LR ---
+    # --- Liner Regression ---
     model_lr = LinearRegression()
     model_lr.fit(X_train, y_train)
     pred_lr_diff = model_lr.predict(X_test)
     pred_lr = pred_lr_diff + df_test[f'OptPow_lag{latency}'].values if config['USE_DIFFERENTIAL'] else pred_lr_diff
     results['lr'] = pred_lr
     
-    # --- RF ---
+    # --- Random Forest ---
     model_rf = RandomForestRegressor(n_estimators=config['RF_N_ESTIMATORS'], random_state=42, n_jobs=-1)
     model_rf.fit(X_train, y_train)
     pred_rf_diff = model_rf.predict(X_test)
     pred_rf = pred_rf_diff + df_test[f'OptPow_lag{latency}'].values if config['USE_DIFFERENTIAL'] else pred_rf_diff
     results['rf'] = pred_rf
     
-    # --- XGB ---
+    # --- XGBoost ---
     model_xgb = xgb.XGBRegressor(n_estimators=config['XGB_N_ESTIMATORS'], random_state=42, n_jobs=-1)
     model_xgb.fit(X_train, y_train)
     pred_xgb_diff = model_xgb.predict(X_test)
     pred_xgb = pred_xgb_diff + df_test[f'OptPow_lag{latency}'].values if config['USE_DIFFERENTIAL'] else pred_xgb_diff
     results['xgb'] = pred_xgb
     
-    # --- CB ---
+    # --- CatBoost ---
     model_cb = cb.CatBoostRegressor(iterations=config['CB_ITERATIONS'], verbose=False, random_state=42)
     model_cb.fit(X_train, y_train)
     pred_cb_diff = model_cb.predict(X_test)
     pred_cb = pred_cb_diff + df_test[f'OptPow_lag{latency}'].values if config['USE_DIFFERENTIAL'] else pred_cb_diff
     results['cb'] = pred_cb
     
-    # --- ZOH ---
+    # --- Zero Order Hold ---
     pred_zoh = df_test[f'OptPow_lag{latency}'].values
     results['zoh'] = pred_zoh
     
-    # --- CALCULATE RMSE ---
+    # --- CALCULATE Root Mean Square Error (RMSE) ---
     rmse_results = {model: calculate_rmse(y_true, results[model]) for model in results if model != 'y_true'}
     
     results['rmse'] = rmse_results
@@ -142,6 +142,7 @@ def train_and_evaluate_models(df_train, df_test, latency, n_taps, config):
     
     return results
 
+# --- CALCULATE Rytov Variance  ---
 def calculate_rytov_metrics(results):
     """Calculate Rytov variance for precompensated signals."""
     y_true = results['y_true']
