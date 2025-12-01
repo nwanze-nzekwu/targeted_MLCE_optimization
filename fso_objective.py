@@ -105,7 +105,7 @@ def train_and_evaluate_models(df_train, df_test, latency, n_taps, config):
     train_and_test_rf_model(df_test, latency, config, X_train, y_train, X_test, results)
     
     # --- XGBoost ---
-    train_and_test_xg_model(df_test, latency, config, X_train, y_train, X_test, results)
+    train_and_test_xgb_model(df_test, latency, config, X_train, y_train, X_test, results)
     
     # --- CatBoost ---
     train_and_test_cb_model(df_test, latency, config, X_train, y_train, X_test, results)
@@ -122,6 +122,7 @@ def train_and_evaluate_models(df_train, df_test, latency, n_taps, config):
     
     return results
 
+# Train and test Least Mean Square model
 def train_and_test_lms_model(df_test, latency, n_taps, config, X_train, y_train, X_test, results):
     y_tr, err_tr, wts_tr = my_pyt_lms(X_train, y_train, n_taps, None, False)
     wts = wts_tr[-1, :]
@@ -129,6 +130,7 @@ def train_and_test_lms_model(df_test, latency, n_taps, config, X_train, y_train,
     pred_lms = yt + df_test[f'OptPow_lag{latency}'].values if config['USE_DIFFERENTIAL'] else yt
     results['lms'] = pred_lms
 
+# Train and test Linear Regression model
 def train_and_test_lr_model(df_test, latency, config, X_train, y_train, X_test, results):
     model_lr = LinearRegression()
     model_lr.fit(X_train, y_train)
@@ -136,6 +138,7 @@ def train_and_test_lr_model(df_test, latency, config, X_train, y_train, X_test, 
     pred_lr = pred_lr_diff + df_test[f'OptPow_lag{latency}'].values if config['USE_DIFFERENTIAL'] else pred_lr_diff
     results['lr'] = pred_lr
 
+# Train and test Random Forest model
 def train_and_test_rf_model(df_test, latency, config, X_train, y_train, X_test, results):
     model_rf = RandomForestRegressor(n_estimators=config['RF_N_ESTIMATORS'], random_state=42, n_jobs=-1)
     model_rf.fit(X_train, y_train)
@@ -143,13 +146,15 @@ def train_and_test_rf_model(df_test, latency, config, X_train, y_train, X_test, 
     pred_rf = pred_rf_diff + df_test[f'OptPow_lag{latency}'].values if config['USE_DIFFERENTIAL'] else pred_rf_diff
     results['rf'] = pred_rf
 
-def train_and_test_xg_model(df_test, latency, config, X_train, y_train, X_test, results):
+# Train and test XGBoost model
+def train_and_test_xgb_model(df_test, latency, config, X_train, y_train, X_test, results):
     model_xgb = xgb.XGBRegressor(n_estimators=config['XGB_N_ESTIMATORS'], random_state=42, n_jobs=-1)
     model_xgb.fit(X_train, y_train)
     pred_xgb_diff = model_xgb.predict(X_test)
     pred_xgb = pred_xgb_diff + df_test[f'OptPow_lag{latency}'].values if config['USE_DIFFERENTIAL'] else pred_xgb_diff
     results['xgb'] = pred_xgb
 
+# Train and test CatBoost model
 def train_and_test_cb_model(df_test, latency, config, X_train, y_train, X_test, results):
     model_cb = cb.CatBoostRegressor(iterations=config['CB_ITERATIONS'], verbose=False, random_state=42)
     model_cb.fit(X_train, y_train)
@@ -157,9 +162,6 @@ def train_and_test_cb_model(df_test, latency, config, X_train, y_train, X_test, 
     pred_cb = pred_cb_diff + df_test[f'OptPow_lag{latency}'].values if config['USE_DIFFERENTIAL'] else pred_cb_diff
     results['cb'] = pred_cb
 
-
-
-# def train_and_test_cb_model(X_train, y_train, X_test, use_differential, df_test, latency):
 
 
 
