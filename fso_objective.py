@@ -35,6 +35,12 @@ DEFAULT_CONFIG = {
     'CB_ITERATIONS': 100,
     'OUTPUT_DIR': './output/',
     'RESULTS_FILENAME_BASE': 'fso_metrics_run',
+    # Adaptive training-size selection controls
+    'N_TRAIN_MIN': 5000,                 # minimum absolute training samples to consider
+    'N_TRAIN_VAL_FRACTION': 0.1,         # fraction of candidate train size used as validation
+    'N_TRAIN_VAL_MAX': 10000,            # maximum validation size
+    'N_TRAIN_TOL': 0.02,                 # tolerance over best validation RMSE to accept smaller train size (2%)
+    'N_TRAIN_CANDIDATE_FRACS': [0.1, 0.25, 0.5, 0.75, 1.0],  # fractions of cap to probe
 }
 
 # ============================================================================
@@ -66,13 +72,69 @@ def load_fso_data(data_dir, filename, var_name, fs_meas, fs):
         raise KeyError(f"Variable '{var_name}' not found in {filename}.")
 
 def create_lagged_features(signal, latency, n_taps, use_differential):
-    """Create lagged feature matrix from signal."""
+    """Create enhanced lagged feature matrix with rolling statistics and derived features."""
     df = pd.DataFrame({'OptPow': signal})
+    
+    # Basic differential features
     df['OptPow_diff'] = df['OptPow'].diff() if use_differential else df['OptPow']
     
+    # Second-order differences (acceleration/rate of change)
+    df['OptPow_diff2'] = df['OptPow_diff'].diff()
+    
+    # === Core Lagged Features ===
     for lag in range(latency, latency + n_taps):
         df[f'OptPow_diff_lag{lag}'] = df['OptPow_diff'].shift(lag)
+        
+        # Add squared terms for non-linearity
+        df[f'OptPow_diff_lag{lag}_sq'] = df[f'OptPow_diff_lag{lag}'] ** 2
     
+    # Add second-order difference lags (capture acceleration patterns)
+    for lag in range(latency, latency + min(n_taps, 5)):
+        df[f'OptPow_diff2_lag{lag}'] = df['OptPow_diff2'].shift(lag)
+    
+    # === Rolling Window Statistics ===
+    # Multiple window sizes to capture patterns at different time scales
+    rolling_windows = [3, 5, 10, 20]
+    
+    for window in rolling_windows:
+        # Only compute if window is reasonable relative to latency
+        if window < latency:
+            # Calculate rolling statistics on the original signal
+            rolling = df['OptPow'].shift(latency).rolling(window=window, min_periods=1)
+            df[f'OptPow_rolling_mean_{window}'] = rolling.mean()
+            df[f'OptPow_rolling_std_{window}'] = rolling.std()
+            df[f'OptPow_rolling_min_{window}'] = rolling.min()
+            df[f'OptPow_rolling_max_{window}'] = rolling.max()
+            
+            # Rolling range (max - min) as a volatility measure
+            df[f'OptPow_rolling_range_{window}'] = (
+                df[f'OptPow_rolling_max_{window}'] - df[f'OptPow_rolling_min_{window}']
+            )
+    
+    # === Exponentially Weighted Moving Averages ===
+    # EWMA gives more weight to recent observations
+    ewma_spans = [5, 10, 20]
+    
+    for span in ewma_spans:
+        if span < latency:
+            # Calculate EWMA and shift appropriately to avoid leakage
+            df[f'OptPow_ewma_{span}'] = (
+                df['OptPow'].shift(latency).ewm(span=span, adjust=False).mean()
+            )
+            
+            # EWMA of differential signal
+            df[f'OptPow_diff_ewma_{span}'] = (
+                df['OptPow_diff'].shift(latency).ewm(span=span, adjust=False).mean()
+            )
+    
+    # === Interaction Features ===
+    # Create a few strategic interaction terms between recent lags
+    if n_taps >= 2:
+        df[f'OptPow_diff_lag{latency}_lag{latency+1}_interact'] = (
+            df[f'OptPow_diff_lag{latency}'] * df[f'OptPow_diff_lag{latency+1}']
+        )
+    
+    # === Reference lag and target ===
     df[f'OptPow_lag{latency}'] = df['OptPow'].shift(latency)
     
     if use_differential:
@@ -82,10 +144,141 @@ def create_lagged_features(signal, latency, n_taps, use_differential):
     
     return df.dropna()
 
+def find_min_effective_train_size(df, latency, n_taps, config):
+    """
+    Determine the smallest training size that achieves near-best validation RMSE,
+    using Linear Regression as a fast proxy model.
+    """
+    max_cap = min(int(config.get('N_TRAIN', 100000)), len(df) - 1000)
+    if max_cap <= 0:
+        return 0
+
+    min_size = int(config.get('N_TRAIN_MIN', 5000))
+    cand_fracs = config.get('N_TRAIN_CANDIDATE_FRACS', [0.1, 0.25, 0.5, 0.75, 1.0])
+    # Build candidate sizes bounded by min_size and max_cap
+    candidates = sorted(set([max(min_size, int(max_cap * f)) for f in cand_fracs] + [max_cap]))
+    candidates = [n for n in candidates if n <= max_cap]
+
+    # Build feature list mirroring training
+    def build_feature_columns(df_ref):
+        cols = [f'OptPow_diff_lag{i}' for i in range(latency, latency + n_taps)]
+        cols.extend([f'OptPow_diff_lag{i}_sq' for i in range(latency, latency + n_taps)])
+        cols.extend([f'OptPow_diff2_lag{i}' for i in range(latency, latency + min(n_taps, 5))])
+
+        for window in [3, 5, 10, 20]:
+            if window < latency:
+                cols.extend([
+                    f'OptPow_rolling_mean_{window}',
+                    f'OptPow_rolling_std_{window}',
+                    f'OptPow_rolling_min_{window}',
+                    f'OptPow_rolling_max_{window}',
+                    f'OptPow_rolling_range_{window}'
+                ])
+
+        for span in [5, 10, 20]:
+            if span < latency:
+                cols.extend([
+                    f'OptPow_ewma_{span}',
+                    f'OptPow_diff_ewma_{span}'
+                ])
+
+        if n_taps >= 2:
+            cols.append(f'OptPow_diff_lag{latency}_lag{latency+1}_interact')
+
+        return [c for c in cols if c in df_ref.columns]
+
+    feature_columns = build_feature_columns(df)
+    target_column = f'OptPow_{latency}stepdiff_target'
+    if len(feature_columns) == 0 or target_column not in df.columns:
+        return max_cap
+
+    tol = float(config.get('N_TRAIN_TOL', 0.02))
+    val_frac = float(config.get('N_TRAIN_VAL_FRACTION', 0.1))
+    val_max = int(config.get('N_TRAIN_VAL_MAX', 10000))
+
+    results = []
+    for n in candidates:
+        n_val = min(val_max, max(1000, int(n * val_frac)))
+        if n_val >= n:
+            continue
+        n_fit = n - n_val
+
+        df_tr = df.iloc[:n_fit]
+        df_val = df.iloc[n_fit:n]
+
+        try:
+            X_tr = df_tr[feature_columns].values
+            y_tr = df_tr[target_column].values
+            X_val = df_val[feature_columns].values
+            y_val_true = df_val['OptPow'].values
+
+            model = LinearRegression()
+            model.fit(X_tr, y_tr)
+            y_val_diff = model.predict(X_val)
+            if config.get('USE_DIFFERENTIAL', True):
+                y_val_pred = y_val_diff + df_val[f'OptPow_lag{latency}'].values
+            else:
+                y_val_pred = y_val_diff
+
+            rmse = calculate_rmse(y_val_true, y_val_pred)
+            results.append((n, rmse))
+        except Exception:
+            # If any candidate fails due to insufficient features/rows, skip it
+            continue
+
+    if not results:
+        return max_cap
+
+    best_rmse = min(r for _, r in results)
+    threshold = best_rmse * (1.0 + tol)
+
+    # Select the smallest candidate within tolerance of best RMSE
+    for n, r in sorted(results, key=lambda t: (t[0], t[1])):
+        if r <= threshold:
+            return n
+
+    return max_cap
+
 def train_and_evaluate_models(df_train, df_test, latency, n_taps, config):
     """Train all models and calculate RMSE."""
     
+    # Build comprehensive feature list including all enhanced features
     feature_columns = [f'OptPow_diff_lag{i}' for i in range(latency, latency + n_taps)]
+    
+    # Add squared lag features
+    feature_columns.extend([f'OptPow_diff_lag{i}_sq' for i in range(latency, latency + n_taps)])
+    
+    # Add second-order difference lags
+    feature_columns.extend([f'OptPow_diff2_lag{i}' for i in range(latency, latency + min(n_taps, 5))])
+    
+    # Add rolling statistics features
+    rolling_windows = [3, 5, 10, 20]
+    for window in rolling_windows:
+        if window < latency:
+            feature_columns.extend([
+                f'OptPow_rolling_mean_{window}',
+                f'OptPow_rolling_std_{window}',
+                f'OptPow_rolling_min_{window}',
+                f'OptPow_rolling_max_{window}',
+                f'OptPow_rolling_range_{window}'
+            ])
+    
+    # Add EWMA features
+    ewma_spans = [5, 10, 20]
+    for span in ewma_spans:
+        if span < latency:
+            feature_columns.extend([
+                f'OptPow_ewma_{span}',
+                f'OptPow_diff_ewma_{span}'
+            ])
+    
+    # Add interaction features
+    if n_taps >= 2:
+        feature_columns.append(f'OptPow_diff_lag{latency}_lag{latency+1}_interact')
+    
+    # Filter to only include columns that exist in the dataframe
+    feature_columns = [col for col in feature_columns if col in df_train.columns]
+    
     target_column = f'OptPow_{latency}stepdiff_target'
     
     X_train = df_train[feature_columns].values
@@ -95,10 +288,13 @@ def train_and_evaluate_models(df_train, df_test, latency, n_taps, config):
     
     results = {}
     
-    # --- Least Mean Square ---
-    train_and_test_lms_model(df_test, latency, n_taps, config, X_train, y_train, X_test, results)
+    # --- Least Mean Square (only use basic lagged features for compatibility) ---
+    basic_features = [f'OptPow_diff_lag{i}' for i in range(latency, latency + n_taps)]
+    X_train_lms = df_train[basic_features].values
+    X_test_lms = df_test[basic_features].values
+    train_and_test_lms_model(df_test, latency, n_taps, config, X_train_lms, y_train, X_test_lms, results)
     
-    # --- Liner Regression ---
+    # --- Linear Regression ---
     train_and_test_lr_model(df_test, latency, config, X_train, y_train, X_test, results)
     
     # --- Random Forest ---
@@ -284,10 +480,14 @@ def objective_function(
         # 3.1 Create features
         df = create_lagged_features(wa, lat, config['N_TAPS'], config['USE_DIFFERENTIAL'])
         
-        # 3.2 Split data
-        n_train = min(config['N_TRAIN'], len(df) - 1000)
-        df_train = df.iloc[:n_train]
-        df_test = df.iloc[n_train:]
+        # 3.2 Choose minimal effective training size and split data
+        n_train_cap = min(config['N_TRAIN'], len(df) - 1000)
+        n_train_eff = find_min_effective_train_size(df, lat, config['N_TAPS'], config)
+        if n_train_eff is None or n_train_eff <= 0:
+            n_train_eff = n_train_cap
+        df_train = df.iloc[:n_train_eff]
+        df_test = df.iloc[n_train_eff:]
+        print(f"Latency {lat}: using effective training size {n_train_eff} (cap {n_train_cap})")
         
         # 3.3 Train and evaluate
         results = train_and_evaluate_models(df_train, df_test, lat, config['N_TAPS'], config)
